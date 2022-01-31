@@ -17,7 +17,7 @@ from detectron2.engine import DefaultPredictor
 
 def make_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-i', '--image_paths', type=str, default='/data/wgot')
+    parser.add_argument('-i', '--image_paths', type=str, default='/data/plant-seedlings-classification/train/Charlock')
     parser.add_argument('-o', '--outdir', type=str, default='/data/cropped')
     args = parser.parse_args()
     return args
@@ -29,8 +29,10 @@ class Detector:
         os.makedirs(self.args.outdir, exist_ok=True)
         self.actions = {
             'detection': 'COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml',
-            'segmentation': 'COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml'
+            'segmentation': 'COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml'
         }
+            #  'segmentation': 'Cityscapes/mask_rcnn_R_50_FPN.yaml'
+            #  'segmentation': 'LVISv0.5-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_1x.yaml'
 
         # detectron2 inits
         cfg = get_cfg()
@@ -79,25 +81,26 @@ class Detector:
             self.log(f'{self.image_path}: nothing', fail=True)
         base = os.path.basename(path)
         parent, ext = os.path.splitext(base)
-        counter = 0
 
-        for x, persons in people.items():
-            x = str(x).zfill(2)
-            outdir = os.path.join(self.args.outdir, x)
+        for counter, person in enumerate(people):
+            outdir = self.args.outdir
             os.makedirs(outdir, exist_ok=True)
-            for person in persons:
-                des = os.path.join(outdir, f'{x}_{parent}_{str(counter).zfill(2)}{ext}')
-                cv2.imwrite(des, person)
-                counter += 1
+            des = os.path.join(outdir, f'{parent}_{str(counter).zfill(2)}{ext}')
+            cv2.imwrite(des, person)
 
     def _segment(self, image, outputs):
+        try:
         # todo
-        mask = outputs['instances'].pred_masks.to(torch.device('cpu')).numpy()[0]
-        people = []
-        image = copy.deepcopy(image)
-        image[mask == False] = 0
-        #  cv2.imwrite('shared/' + os.path.split(self.image_path)[1], image)
-        people.append(image)
+            mask = outputs['instances'].pred_masks.to(torch.device('cpu')).numpy()
+            print(self.image_path, mask.shape)
+            people = []
+            for i in range(mask.shape[0]):
+                image = copy.deepcopy(image)
+                image[mask[i] == False] = 0
+                people.append(image)
+        except Exception as e:
+            print(e)
+            return []
         return people
 
     def log(self, string, stdout=False, fail=False):
@@ -108,14 +111,4 @@ class Detector:
             print(f'{string}\n')
 
 det = Detector()
-det.lossy_image(segment=False)
-while True:
-    try:
-        pdl = PictureDataLoader(det.args.image_paths, shuffle=False)
-    except AssertionError as e:
-        subprocess.call(shlex.split('echo -ne "\007"'))
-        print(f'{e}, waiting...')
-        time.sleep(60)
-        continue
-    det.images = pdl
-    det.lossy_image(segment=False)
+det.lossy_image(segment=True)

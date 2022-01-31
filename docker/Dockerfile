@@ -53,6 +53,9 @@ RUN pip install --user -e detectron2
 ENV FVCORE_CACHE="/tmp"
 
 RUN pip install --user tqdm tensorflow cvlib scipy
+COPY $PWD/ai/actions $HOME/detectron2/actions/
+COPY $PWD/ai/loaders $HOME/detectron2/loaders/
+COPY $PWD/ai/utils $HOME/detectron2/utils/
 
 WORKDIR $HOME/detectron2
 

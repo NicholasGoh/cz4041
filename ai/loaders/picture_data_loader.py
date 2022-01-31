@@ -11,7 +11,7 @@ sys.path.remove(os.path.abspath('..'))
 
 class PictureDataLoader:
     def __init__(self, path, shuffle = True):
-        self.image_paths = glob.glob(os.path.join(path, '*.jpg'))
+        self.image_paths = glob.glob(os.path.join(path, '*.png'))
         assert len(self.image_paths) > 0, f'No images found in {path}'
         if shuffle:
             random.shuffle(self.image_paths)
