@@ -1,1 +1,0 @@
-from .picture_data_loader import PictureDataLoader
