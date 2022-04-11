@@ -42,5 +42,3 @@ RUN jt -t gruvboxd -cellw 80%
 RUN mkdir $HOME/cz4041
 
 WORKDIR $HOME/cz4041
-
-# ENTRYPOINT ["/usr/bin/python", "actions/detect.py"]

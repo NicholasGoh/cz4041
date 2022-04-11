@@ -9,5 +9,3 @@ docker run \
     -v=$PWD:$HOME/cz4041 \
     -v=/data/plant-seedlings-classification:/data \
     cz4041
-
-    # -v=$PWD/ai/tron2/weights:/tmp \

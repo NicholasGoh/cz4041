@@ -48,7 +48,7 @@ class DatasetWrapper:
                 axes[i, j].set(xticks=[], yticks=[])
         plt.tight_layout()
 
-    def make_datagens(self, augment=False, hsv_mask=False):
+    def make_datagens(self, augment=False, hsv_mask=False, no_valid=False):
         func = lambda x: (preprocess_input(x) if not hsv_mask
                                               else preprocess_input(get_hsv_masked(x)))
         datagen_kwargs = dict(
@@ -63,29 +63,41 @@ class DatasetWrapper:
             datagen_kwargs.update(augment_kwargs)
         datagen = ImageDataGenerator(**datagen_kwargs)
 
-        self.train_generator = datagen.flow_from_directory(
-                self.dataset_path,
-                target_size=(self.img_size, self.img_size),
-                color_mode='rgb',
-                batch_size=self.batch_size,
-                shuffle=True,
-                seed=42,
-                subset='training',
-                class_mode="categorical")
-        self.valid_generator = datagen.flow_from_directory(
-                self.dataset_path,
-                target_size=(self.img_size, self.img_size),
-                color_mode='rgb',
-                batch_size=self.batch_size,
-                shuffle=True,
-                seed=42,
-                subset='validation',
-                class_mode="categorical")
-
         # 1.5 times the (augmented) data
         multiplier = 1.5 if augment else 1
-        self.step_size_train= int(self.train_generator.n // self.train_generator.batch_size * multiplier)
-        self.step_size_valid= int(self.valid_generator.n // self.valid_generator.batch_size * multiplier)
+
+        if not no_valid:
+            self.train_generator = datagen.flow_from_directory(
+                    self.dataset_path,
+                    target_size=(self.img_size, self.img_size),
+                    color_mode='rgb',
+                    batch_size=self.batch_size,
+                    shuffle=True,
+                    seed=42,
+                    subset='training',
+                    class_mode="categorical")
+            self.valid_generator = datagen.flow_from_directory(
+                    self.dataset_path,
+                    target_size=(self.img_size, self.img_size),
+                    color_mode='rgb',
+                    batch_size=self.batch_size,
+                    shuffle=True,
+                    seed=42,
+                    subset='validation',
+                    class_mode="categorical")
+            self.step_size_train= int(self.train_generator.n // self.train_generator.batch_size * multiplier)
+            self.step_size_valid= int(self.valid_generator.n // self.valid_generator.batch_size * multiplier)
+
+        else:
+            self.no_valid = datagen.flow_from_directory(
+                    self.dataset_path,
+                    target_size=(self.img_size, self.img_size),
+                    color_mode='rgb',
+                    batch_size=self.batch_size,
+                    shuffle=True,
+                    seed=42,
+                    class_mode="categorical")
+            self.step_no_valid = int(self.no_valid.n // self.no_valid.batch_size * multiplier)
 
     def infinite_generator(self, generator):
         while True:
@@ -139,18 +151,26 @@ class ModelWrapper:
         x = layers.Dense(**dense_kwargs)(x)
         self.model = tf.keras.Model(base_model.input, x)
 
-    # todo
-    # import tensorflow_addons as tfa
-    def compile(self, lr, cyclic=False):
-        assert not cyclic, 'no tfa'
-        if cyclic: # lr oscillates between 2 values and decays at the same time
-    #         clr = tfa.optimizers.CyclicalLearningRate(initial_learning_rate=lr / 10,
-    #         maximal_learning_rate=lr,
-    #         scale_fn=lambda x: 1/(2.**(x-1)),
-    #         step_size=2 * step_size_train
-    #         )
-    #         optimizer = tf.keras.optimizers.Adam(clr)
-            pass
+    def compile(self, lr, mode='normal'):
+        assert mode in ['cyclic', 'multiple', 'normal']
+        if mode == 'cyclic': # lr oscillates between 2 values and decays at the same time
+            self.clr = tfa.optimizers.CyclicalLearningRate(initial_learning_rate=lr / 10,
+            maximal_learning_rate=lr,
+            scale_fn=lambda x: 1 / (2. ** (x - 1)),
+            step_size=2 * self.dataset.step_size_train
+            )
+            optimizer = tf.keras.optimizers.Adam(self.clr)
+        elif mode == 'multiple':
+            optimizers = [
+                    tf.keras.optimizers.Adam(0.),
+                    #  tf.keras.optimizers.Adam(lr * 1e-12),
+                    tf.keras.optimizers.Adam(lr)]
+            for l in self.model.layers:
+                l.trainable = True
+            optimizers_and_layers = [
+                    (optimizers[0], self.model.layers[:-2]),
+                    (optimizers[1], self.model.layers[-2:])]
+            optimizer = tfa.optimizers.MultiOptimizer(optimizers_and_layers)
         else:
             optimizer = tf.keras.optimizers.Adam(lr)
             self.clr = None
@@ -162,23 +182,33 @@ class ModelWrapper:
                 num_classes=self.dataset.num_classes,
                 average='micro')])
 
-    def visualize_cyclic(self, clr, epochs):
+    def visualize_cyclic(self, epochs=20):
+        if self.clr is None:
+            return
         step = np.arange(0, epochs * self.dataset.step_size_train)
-        lr = clr(step)
+        lr = self.clr(step)
         plt.plot(step, lr)
         plt.xlabel('Steps')
         plt.ylabel('Learning Rate')
         plt.title('Cyclic Learning Rate with Decay')
         plt.show()
         
-    def fit(self, epochs):
-        history = self.model.fit(
-            x=self.dataset.infinite_generator(self.dataset.train_generator),
-            validation_data=self.dataset.infinite_generator(self.dataset.valid_generator),
-            steps_per_epoch=self.dataset.step_size_train,
-            validation_steps=self.dataset.step_size_valid,
+    def fit(self, epochs, no_valid=False):
+        kwargs = dict(
+            x=self.dataset.infinite_generator(self.dataset.no_valid),
+            steps_per_epoch=self.dataset.step_no_valid,
             callbacks=[PlotLosses(self.plotdir, self.figname)],
             epochs=epochs)
+        if not no_valid:
+            update = dict(
+                x=self.dataset.infinite_generator(self.dataset.train_generator),
+                steps_per_epoch=self.dataset.step_size_train,
+                validation_data=self.dataset.infinite_generator(self.dataset.valid_generator),
+                validation_steps=self.dataset.step_size_valid,
+            )
+            kwargs.update(update)
+        history = self.model.fit(**kwargs)
+
         self.history = history.history
         self.model.save_weights(os.path.join(self.weightdir, self.figname + '.h5'))
         self._save_history(history.history)
