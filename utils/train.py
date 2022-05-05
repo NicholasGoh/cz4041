@@ -193,20 +193,22 @@ class ModelWrapper:
         plt.title('Cyclic Learning Rate with Decay')
         plt.show()
         
-    def fit(self, epochs, no_valid=False):
+    def fit(self, epochs, no_valid=False, class_weight={k: 1 for k in range(12)}):
         kwargs = dict(
-            x=self.dataset.infinite_generator(self.dataset.no_valid),
-            steps_per_epoch=self.dataset.step_no_valid,
             callbacks=[PlotLosses(self.plotdir, self.figname)],
+            class_weight=class_weight,
             epochs=epochs)
         if not no_valid:
             update = dict(
                 x=self.dataset.infinite_generator(self.dataset.train_generator),
                 steps_per_epoch=self.dataset.step_size_train,
                 validation_data=self.dataset.infinite_generator(self.dataset.valid_generator),
-                validation_steps=self.dataset.step_size_valid,
-            )
-            kwargs.update(update)
+                validation_steps=self.dataset.step_size_valid)
+        else:
+            update = dict(
+            x=self.dataset.infinite_generator(self.dataset.no_valid),
+            steps_per_epoch=self.dataset.step_no_valid)
+        kwargs.update(update)
         history = self.model.fit(**kwargs)
 
         self.history = history.history
